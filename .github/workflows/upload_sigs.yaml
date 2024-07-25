@@ -1,0 +1,38 @@
+name: Verify and Upload Signatures to Docker Hub
+
+on:
+  push:
+    branches:
+      - master  # Adjust the branch as necessary
+
+jobs:
+  verify-and-upload-sigs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Cosign
+        run: |
+          COSIGN_VERSION=$(curl -s https://api.github.com/repos/sigstore/cosign/releases/latest | jq -r .tag_name)
+          curl -LO "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+          chmod +x cosign-linux-amd64
+          sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+
+      - name: Log in to Docker Hub
+        run: |
+          echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+
+      - name: Verify and attach signatures to Docker images
+        run: |
+          sig_dir="dashd"  # Adjust this to your specific directory
+          pub_key="dashd/dashd.pub"   # Adjust this to your public key
+          for sigfile in $(find $sig_dir -name '*.cosig'); do
+            digest=$(basename $sigfile .cosig)
+            image="dashpay/dashd@sha256:$digest"
+            # Verify the signature
+            cosign verify --key $pub_key --signature $sigfile $image && \
+            # Attach the signature if verification is successful
+            cosign attach signature --signature $sigfile $image
+          done
